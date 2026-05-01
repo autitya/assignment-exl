@@ -20,7 +20,7 @@ if LLM_API == 'OPENAI':
     embedding = OpenAIEmbeddings()
 elif LLM_API == 'GEMINI':
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model="gemini-2.5-flash-lite",
         temperature=0
     )
     embedding = GoogleGenerativeAIEmbeddings(

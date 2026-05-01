@@ -4,7 +4,6 @@ This module implements a routing system that directs user queries to either
 direct LLM responses or document search via RAG (Retrieval Augmented Generation).
 It uses LangGraph to manage the workflow state and routing logic.
 """
-import streamlit as st
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, Optional
 from langchain_core.tools import tool
@@ -89,7 +88,6 @@ def search_docs(query: str) -> str:
         RAGChainError: If the RAG chain invocation fails
     """
     try:
-        st.spinner("fetching relevant documents...")
         result = rag_chain.invoke(query)
         return result
     except Exception as e:

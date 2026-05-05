@@ -4,6 +4,9 @@ This module implements a routing system that directs user queries to either
 direct LLM responses or document search via RAG (Retrieval Augmented Generation).
 It uses LangGraph to manage the workflow state and routing logic.
 """
+import pdb
+import asyncio
+from time import time
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, Optional
 from langchain_core.tools import tool
@@ -12,10 +15,10 @@ from langchain_core.output_parsers import StrOutputParser
 from config.settings import llm, vectordb, prompt
 import logging
 from langsmith import Client
-
+from langgraph_sdk.client import get_client
 # Configure logging
 logger = logging.getLogger(__name__)
-
+import os
 
 class LLMException(Exception):
     """Base exception for LLM-related errors."""
@@ -96,16 +99,47 @@ def search_docs(query: str) -> str:
         raise RAGChainError(error_msg) from e
 
 
-client = Client()
-@tool
-def fleet_agent(query: str):
-    """Fleet agent for analysis."""
-    response = client.run_agent(
-        agent_id="fleet-agent-01",
-        inputs={"content": query}
-    )
-    return response.outputs['output']
+agent_id = os.getenv("FLEET_AGENT_ID")
 
+# This must be a PAT API key tied to your user
+api_key = os.getenv("LANGSMITH_API_KEY")
+api_url = os.getenv("FLEET_AGENT_URL")
+
+client = get_client(
+    url=api_url,
+    api_key=api_key,
+    headers={
+        "X-Auth-Scheme": "langsmith-api-key",
+    },
+)
+
+#@tool
+async def fleet_agent(query: str):
+    """Fleet agent for analysis."""
+    thread =  await client.threads.create()
+    thread_id = thread["thread_id"]
+    response = await client.runs.create(
+        thread_id,
+        agent_id,
+        input={
+            "messages": [
+                {"type": "human", "content": query}
+            ]
+        },
+    )
+    
+    while True:
+        status_response = await client.runs.get(thread_id, response["run_id"])
+        if status_response["status"] in ["completed", "failed",'success', 'error']:
+            break
+        await asyncio.sleep(5)
+    state = await client.threads.get_state(thread_id)
+    messages = state["values"].get("messages", [])
+    if messages:
+        final_message = messages[-1]
+        return final_message.get("content",[{"text": "No content available"}])[0]['text']
+    else:
+         return "Fleet agent did not return any messages."
 class GraphState(TypedDict):
     """Represents the state of the LangGraph workflow.
     
@@ -240,7 +274,7 @@ def fleet_node(state: GraphState):
     """
     try:
         # Invoke the fleet_agent tool for fleet-specific analysis
-        answer = fleet_agent.invoke(state["question"])
+        answer =   asyncio.run(fleet_agent(state["question"]))
         return {"answer": answer}
     except Exception as e:
         error_msg = f"Fleet agent execution failed: {str(e)}"
